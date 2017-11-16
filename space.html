@@ -1,0 +1,661 @@
+<!--
+  space.html
+  Sam Erie
+  serie@alaska.edu
+  CS 381
+  Final Project
+  WebGl program, 3rd person flight sim
+-->
+
+<!DOCTYPE html>
+<html>
+<style>
+
+ul, canvas
+{
+  position: absolute;
+}
+
+</style>
+<head>
+  <meta charset="utf-8">
+  <title>Space Sim</title>
+</head>
+
+<body id="pageBody" onload="app('appCanvas')">
+
+
+  <canvas id="appCanvas" width="500" height="400"></canvas>
+
+
+
+<script type="text/javascript" src="gl-matrix-min.js"></script>
+<script type="text/javascript" src="quoll.js"></script>
+
+<!-- ************************************************************** -->
+<!-- * GLSL Shaders                                               * -->
+<!-- ************************************************************** -->
+<!-- star shaders -->
+<script id="vshader3" type="x-shader/x-vertex">
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+attribute vec4 vertex_attr;
+
+varying vec2 coords;
+
+void main()
+{
+    // Compute projected vertex position
+    gl_Position = projectionMatrix * modelViewMatrix * vertex_attr;
+
+    //texture coordinates
+    coords = vertex_attr.xy / vertex_attr.w;
+
+    //increase point size
+    gl_PointSize = 15.;
+}
+</script>
+<script id="fshader3" type="x-shader/x-fragment">
+
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+varying vec2 coords;
+
+
+void main()
+{
+
+  //currently only draws squares, need to figure out how to make fuzzy blobs
+
+    vec4 finalColor = vec4(0.7, 1., 1., 0.3);
+    // vec4 edgeColor = vec4(0.3, 0.3, 0.3, 0.3);
+    // //center of uv coords for object
+    // vec2 center = vec2(0., 0.);
+    // //darkens edges by mixing edgeColor as uvCoords get further from center
+    // finalColor = mix(finalColor, edgeColor, distance(coords, center));
+
+    gl_FragColor = finalColor;
+
+}
+</script>
+
+
+
+<!-- planet shaders -->
+<script id="vshader2" type="x-shader/x-vertex">
+// Vertex Shader #1
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+attribute vec4 vertex_attr;
+attribute vec4 color_attr;
+
+varying vec4 paintcolor_var;
+varying vec2 coords;
+
+void main()
+{
+    // Compute projected vertex position
+    gl_Position = projectionMatrix * modelViewMatrix * vertex_attr;
+    coords = vertex_attr.xy / vertex_attr.w;
+    // Send paint color to fragment shader
+    paintcolor_var = color_attr;
+}
+</script>
+<script id="fshader2" type="x-shader/x-fragment">
+// Fragment Shader #1
+
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+varying vec4 paintcolor_var;
+varying vec2 coords;
+
+
+void main()
+{
+
+    float r = .5;
+    float g = .7;
+    float b = 1.;
+
+    vec4 finalColor = vec4(r, g, b, 1.);
+    vec4 edgeColor = vec4(0.2, 0.8, 0.4, 1.);
+
+    //center of uv coords for object
+    vec2 center = vec2(0., 0.);
+    //darkens edges by mixing edgeColor as uvCoords get further from center
+    finalColor = mix(finalColor, edgeColor, distance(coords, center));
+
+    gl_FragColor = finalColor;
+
+}
+</script>
+
+<!-- regular shaders --->
+
+<script id="vshader1" type="x-shader/x-vertex">
+// Vertex Shader #1
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+uniform mat3 normalMatrix;
+
+attribute vec4 vertex_attr;
+attribute vec4 color_attr;
+attribute vec3 normal_attr;
+
+varying vec4 paintcolor_var;
+varying vec3 surfnorm_var;    // Surface normal (cam coords)
+varying vec3 surfpt_var;      // Pt on surface (cam coords)
+varying vec3 objcoords_var;   // Object coordinates
+
+void main()
+{
+    // Compute projected vertex position
+    gl_Position = projectionMatrix * modelViewMatrix * vertex_attr;
+
+    // Send paint color to fragment shader
+    paintcolor_var = color_attr;
+
+    // Object coordinates.
+    objcoords_var = vertex_attr.xyz / vertex_attr.w;
+
+    // Surface point (camera coords)
+    vec4 surfpt4 = modelViewMatrix * vertex_attr;
+    surfpt_var = surfpt4.xyz / surfpt4.w;
+
+    // Surface normal (camera coords)
+    surfnorm_var = normalize(normalMatrix * normal_attr);
+
+}
+</script>
+<script id="fshader1" type="x-shader/x-fragment">
+// Fragment Shader #1
+
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+varying vec4 paintcolor_var;
+varying vec3 surfnorm_var;    // Surface normal (cam coords)
+varying vec3 surfpt_var;      // Pt on surface (cam coords)
+varying vec3 objcoords_var;   // Object coordinates
+
+// get color for fragment via lambertian illum model
+vec4 getLightColor(
+    vec4 lightColor,
+    vec4 lightPos,
+    vec4 paintColor,
+    vec3 surfPos,
+    vec3 surfNorm)
+{
+    //get unit vector from light position to point where light hits
+    vec3 lightDir = normalize(lightPos.xyz - surfPos*lightPos.w);
+
+    // ambient light
+    float ambientCoeff = 0.2;
+    vec4 ambientColor = ambientCoeff * lightColor * paintColor;
+
+    // diffuse light
+    float lambertCos = max(0., dot(surfNorm, lightDir));
+    vec4 diffuseColor = lambertCos * lightColor * paintColor;
+
+    return clamp(ambientColor + diffuseColor,
+                 0., 1.);
+}
+
+
+void main()
+{
+
+    // Surface normal
+     vec3 surfnorm = normalize(surfnorm_var);
+
+    // Hard-coded light-source color, position
+    vec4 lightcolor = vec4(1., 0.9, 1., 1.);
+    vec4 lightpos4 = vec4(0., -15., 5., 20.);  // Cam coords
+
+    vec4 finalcolor = getLightColor(lightcolor, lightpos4,
+                             paintcolor_var, surfpt_var, surfnorm);
+
+
+    finalcolor.a = 1.0;
+
+    gl_FragColor = finalcolor;
+
+}
+</script>
+
+<!-- END GLSL Shaders -->
+
+<!--   App  -->
+<script type="text/javascript">
+
+
+// global app members
+var gl;
+var shader;
+var planetShader;
+var starShader;
+
+
+var yaw=0., pitch=0., roll=0.;  //scalars for ship rotations
+var pos, dir; //vec3 for ship translations
+
+var rotMatrix;
+var camMatrix;
+var vel=.15; //scalar for pos+vel*dir
+var thrustOn = false;
+var stars = [];
+var starNum = 50;
+var planets = [];
+var planetNum = 5;
+
+
+function genStars(num)
+{
+  for(var i = 0; i < num; i++)
+  {
+    stars.push(new Object());
+    stars[i].x = Math.floor((Math.random()*80)-40);
+    stars[i].y = Math.floor((Math.random()*80)-40);
+    stars[i].z = Math.floor((Math.random()*80)-40);
+    stars[i].size = Math.random()*.25+.01;
+  }
+}
+
+function genPlanets(num)
+{
+  for(var i = 0; i < num; i++)
+  {
+    planets.push(new Object());
+    var seperated = false;
+    var seed;
+    var minDist = 40.;
+    var c;
+    var x;
+    var y;
+    var z;
+
+    while(!seperated)
+    {
+      c = Math.floor((Math.random()*2))
+      x = Math.floor((Math.random()*40)+5);
+      y = Math.floor((Math.random()*40)+5);
+      z = Math.floor((Math.random()*40)+5);
+
+      switch(c)
+      {
+        case 0:
+          x *= -1;
+          break;
+        case 1:
+          y *= -1;
+          break;
+        case 2:
+          z*=-1;
+          break;
+        default:
+      }
+
+      seed = vec3.fromValues(x,y,z);
+      seperated = true;
+      for(var j = 0; j  < i-1; j++)
+      {
+        var old = vec3.fromValues(planets[j].x, planets[j].y, planets[j].z);
+        if(vec3.dist(old, seed) < minDist)
+          seperated = false;
+      }
+
+    }
+    planets[i].x=x;
+    planets[i].y=y;
+    planets[i].z=z;
+    planets[i].size = Math.random()*5.+2.;
+  }
+}
+
+function app(canvasId)
+{
+
+    gl = quollInit(canvasId);
+    if(!gl) return; //exits if could not Initialize gl
+
+    //shaders
+    shader = makeProgramObjectFromIds(gl, 'vshader1', 'fshader1');
+    planetShader = makeProgramObjectFromIds(gl, 'vshader2', 'fshader2');
+    starShader = makeProgramObjectFromIds(gl, 'vshader3', 'fshader3');
+
+    //register callbacks
+    registerDisplay(displayFunc);
+    registerReshape(reshapeFunc);
+    registerIdle(idleFunc);
+    canvasFullWindow(true);
+
+
+    //event handlers
+    document.addEventListener('keypress', keyboardFunc, false);
+
+    pos = vec3.fromValues(0., 0., 0.);
+    dir = vec3.fromValues(0., 0., 1.);
+
+    camMatrix = mat4.create();
+    mat4.translate(camMatrix, camMatrix,
+        [0.,0.,-4.]);
+
+    genStars(starNum);
+    genPlanets(planetNum);
+
+    gl.enable(gl.DEPTH_TEST);
+  }
+
+
+  function drawPropulsion()
+  {
+      var thrust = vec3.fromValues(0.,0.25,.95);
+
+      pushMvMatrix(gl);
+
+        mat4.translate(gl.mvMatrix, gl.mvMatrix,
+              thrust);
+
+        objscale=0.3;
+        mat4.scale(gl.mvMatrix, gl.mvMatrix,
+             [objscale, objscale, objscale]);
+
+        drawSphere(gl,
+            .5, 40, 20, //rad, slice, stack
+            1,0,0); //rgb
+      popMvMatrix(gl);
+  }
+
+
+
+  function drawStar(star)
+  {
+    pushMvMatrix(gl);
+      mat4.translate(gl.mvMatrix, gl.mvMatrix,
+            [star.x,star.y,star.z]);
+
+      mat4.scale(gl.mvMatrix, gl.mvMatrix,
+           [star.size,star.size,star.size]);
+      // drawSphere(gl,
+      //     .2, 40, 20, //rad, slice, stack
+      //     1,1,1); //rgb
+
+          primBegin(gl, gl.POINTS);
+            primColor(gl, 1., 1., 1.);
+            primVertex(gl, 0., 0., 0.);
+          primEnd(gl);
+    popMvMatrix(gl);
+  }
+
+  function drawPlanet(planet)
+  {
+    pushMvMatrix(gl);
+      mat4.translate(gl.mvMatrix, gl.mvMatrix,
+            [planet.x,planet.y,planet.z]);
+
+      mat4.scale(gl.mvMatrix, gl.mvMatrix,
+           [planet.size,planet.size,planet.size]);
+      drawSphere(gl,
+          1., 40, 20, //rad, slice, stack
+          0.,0.,1.); //rgb
+
+
+    popMvMatrix(gl);
+  }
+
+  function drawStars()
+  {
+    gl.useProgram(starShader);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    for(var i = 0; i < starNum; i++)
+    {
+      drawStar(stars[i]);
+    }
+    gl.useProgram(shader);
+    gl.enable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
+
+  }
+
+  function drawPlanets()
+  {
+    for(var i = 0; i < planetNum; i++)
+    {
+      drawPlanet(planets[i]);
+    }
+
+  }
+
+  function drawShip()
+  {
+
+
+    pushMvMatrix(gl);
+    mat4.rotate(gl.mvMatrix, gl.mvMatrix, -Math.PI/2., [1.,0.,0.]);
+
+    //left top
+      primBegin(gl, gl.TRIANGLES);
+        primColor(gl, 0.7,0.7,0.9);
+        primVertex(gl, 0., -0.75, 0.5);
+        primColor(gl, 0.3,0.3,0.3);
+        primVertex(gl, 0., 1., 0.);
+        primVertex(gl, -0.5, -1., 0.);
+      primEnd(gl);
+    //right top
+      primBegin(gl, gl.TRIANGLES);
+        primColor(gl, 0.7,0.7,0.9);
+        primVertex(gl, 0., -0.75, 0.5);
+        primColor(gl, 0.3,0.3,0.3);
+        primVertex(gl, 0., 1., 0.);
+        primVertex(gl, 0.5, -1., 0.);
+      primEnd(gl);
+      //aft
+        primBegin(gl, gl.TRIANGLES);
+          primColor(gl, 0.5,0.5,0.6);
+          primVertex(gl, 0., -0.75, 0.5);
+          primColor(gl, 0.1,0.1,0.2);
+          primVertex(gl, 0.5, -1., 0.);
+          primVertex(gl, -0.5, -1., 0.);
+        primEnd(gl);
+        //base
+        primBegin(gl, gl.TRIANGLES);
+          primColor(gl, 0.3,0.3,0.4);
+          primVertex(gl, 0., 1., 0.);
+          primVertex(gl, 0.5, -1., 0.);
+          primVertex(gl, -0.5, -1., 0.);
+        primEnd(gl);
+    popMvMatrix(gl);
+  }
+
+  function setCam()
+  {
+      var mb = vec3.fromValues(0.,0.,-4.);
+      camMatrix = mat4.create();
+
+      mat4.translate(camMatrix, camMatrix,
+          mb);
+      mat4.translate(camMatrix, camMatrix,
+          [0.,-0.35,0.]);
+      mat4.rotate(camMatrix, camMatrix, -Math.PI/7., [-1.,0.,0.]);
+
+      var pitchMatrix = mat4.create();
+      var right = vec3.fromValues(-1.,0.,0.);
+      mat4.fromRotation(pitchMatrix, pitch, right);
+
+      var yawMatrix = mat4.create();
+      var up = vec3.fromValues(0.,-1.,0.);
+      mat4.fromRotation(yawMatrix, yaw, up);
+
+      var rollMatrix = mat4.create();
+      var fwd = vec3.fromValues(0.,0.,1.);
+      mat4.fromRotation(rollMatrix, roll, fwd);
+
+      mat4.multiply(pitchMatrix, pitchMatrix,yawMatrix);
+
+      mat4.multiply(camMatrix, camMatrix, pitchMatrix);
+
+      var campos = vec3.create();
+      vec3.copy(campos, pos);
+
+      vec3.scale(campos, campos, -1.);
+
+      mat4.translate(camMatrix, camMatrix,
+          campos);
+  }
+
+  function displayFunc()
+  {
+    gl.useProgram(shader);
+
+    gl.clearColor(0.2, 0.1,0.25, 1.);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // camera
+    mat4.identity(gl.mvMatrix);
+    setCam();
+    mat4.multiply(gl.mvMatrix, gl.mvMatrix, camMatrix);
+
+    pushMvMatrix(gl);
+        drawStars();
+    popMvMatrix(gl);
+
+    pushMvMatrix(gl);
+    gl.useProgram(planetShader);
+
+    drawPlanets();
+
+    gl.useProgram(shader);
+    popMvMatrix(gl);
+
+    // transformations
+    mat4.translate(gl.mvMatrix, gl.mvMatrix,
+      pos); //pos add in idleFunc()
+
+    // rotate ship
+    rotMatrix = rotateMatrix();
+
+    mat4.multiply(gl.mvMatrix, gl.mvMatrix, rotMatrix);
+
+    var objscale = 0.5;
+    mat4.scale(gl.mvMatrix, gl.mvMatrix,
+        [objscale, objscale, objscale]);
+
+    drawShip();
+
+    if(thrustOn)
+      drawPropulsion();
+
+    gl.flush();
+  }
+
+
+  function rotateMatrix()
+  {
+    var pitchMatrix = mat4.create();
+    var right = vec3.fromValues(1.,0.,0.);
+    mat4.fromRotation(pitchMatrix, pitch, right);
+    mat4.translate(pitchMatrix, pitchMatrix, [0.,0.,-.5]);
+
+
+    var yawMatrix = mat4.create();
+    var up = vec3.fromValues(0.,1.,0.);
+    mat4.fromRotation(yawMatrix, yaw, up);
+
+    var rollMatrix = mat4.create();
+    var fwd = vec3.fromValues(0.,0.,-1.);
+    mat4.fromRotation(rollMatrix, roll, fwd);
+    mat4.translate(rollMatrix, rollMatrix, [0.,-.1,.0]);
+
+    mat4.multiply(pitchMatrix, yawMatrix, pitchMatrix);
+    mat4.multiply(pitchMatrix, rollMatrix, pitchMatrix);
+
+    var returnMatrix = pitchMatrix;
+
+    //set forward direction of ship with cross product of BK X RT vectors in modelViewMatrix
+    //was a little guess and check figuring this out, with some help from message boards
+    //https://www.opengl.org/discussion_boards/showthread.php/175515-Get-Direction-from-Transformation-Matrix-or-Quat
+    up = vec3.fromValues(returnMatrix[4],returnMatrix[5],returnMatrix[6]);
+    vec3.normalize(up, up);
+    right = vec3.fromValues(returnMatrix[0],returnMatrix[1],returnMatrix[2]);
+    vec3.normalize(right, right);
+    vec3.cross(dir, up,
+                  right);
+    vec3.normalize(dir, dir);
+
+    return returnMatrix;
+  }
+
+
+  function reshapeFunc(w, h)
+  {
+    gl.viewport(0, 0, w, h);
+
+    mat4.perspective(gl.pMatrix, Math.PI/3., w/h, 0.1, 80.);
+  }
+
+
+  function idleFunc(e)
+  {
+      var elapsedtime = getElapsedTime(0.1);
+
+      if(thrustOn)
+      {
+          //pos+=vel*dir
+            vec3.scaleAndAdd(pos, pos, dir, vel);
+          postRedisplay();
+      }
+
+  }
+
+
+  function keyboardFunc(e)
+  {
+    var key = keyFromEvent(e);
+    var delta = .1; //change in rotation per keypress
+
+    switch (key)
+     {
+      case 'w':
+      pitch-=delta;
+        break;
+      case 's':
+      pitch+=delta;
+        break;
+      case 'a':
+        roll-=delta;
+        break;
+      case 'd':
+        roll+=delta;
+        break;
+      case 'q':
+      yaw+=delta;
+        break;
+      case 'e':
+      yaw-=delta;
+        break;
+      case ' ':
+        thrustOn=!thrustOn;
+        break;
+      default:
+
+    }
+
+    postRedisplay();
+  }
+
+</script>
+
+</body>
+</html>
