@@ -94,6 +94,7 @@ uniform mat4 projectionMatrix;
 
 attribute vec4 vertex_attr;
 attribute vec4 color_attr;
+attribute vec4 texcoord_attr;
 
 varying vec4 paintcolor_var;
 varying vec2 coords;
@@ -102,7 +103,7 @@ void main()
 {
     // Compute projected vertex position
     gl_Position = projectionMatrix * modelViewMatrix * vertex_attr;
-    coords = vertex_attr.xy / vertex_attr.w;
+    coords = texcoord_attr.xy / texcoord_attr.w;
     // Send paint color to fragment shader
     paintcolor_var = color_attr;
 }
@@ -117,27 +118,83 @@ precision mediump float;
 varying vec4 paintcolor_var;
 varying vec2 coords;
 
+uniform sampler2D tex0;
+
+void main()
+{
+    vec4 water = vec4(13./255., 69./255., 252./255., 1.);
+  //  vec4 deep = vec4(6./255., 23./255., 82./255., 1.);
+    vec4 deep = vec4(10./255., 43./255., 152./255., 1.);
+    vec4 ground = vec4(33./255., 99./255., 5./255., 1.);
+    vec4 mount = vec4(115./255., 22./255., 69./255., 1.);
+    float height = texture2D(tex0, coords).r;
+    vec4 finalColor;
+
+    if(height < .7)
+      finalColor = mix(water, deep, (.7-height)*(10./7.));
+    else
+      finalColor = mix(mount, ground, height);
+
+    finalColor = clamp(finalColor,0.,1.);
+  //  finalColor = texture2D(tex0, coords);
+    gl_FragColor = finalColor;
+
+}
+</script>
+<!-- atmosphere shaders -->
+<script id="vshader4" type="x-shader/x-vertex">
+// Vertex Shader #1
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+attribute vec4 vertex_attr;
+attribute vec4 color_attr;
+attribute vec4 texcoord_attr;
+
+varying vec4 paintcolor_var;
+varying vec2 coords;
+
+void main()
+{
+    // Compute projected vertex position
+    gl_Position = projectionMatrix * modelViewMatrix * vertex_attr;
+    coords = texcoord_attr.xy / texcoord_attr.w;
+    // Send paint color to fragment shader
+    paintcolor_var = color_attr;
+}
+</script>
+<script id="fshader4" type="x-shader/x-fragment">
+// Fragment Shader #1
+
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+varying vec4 paintcolor_var;
+varying vec2 coords;
+
+uniform sampler2D tex1;
 
 void main()
 {
 
-    float r = .5;
-    float g = .7;
-    float b = 1.;
+    float density = texture2D(tex1, coords).r;
+    vec4 finalColor;
 
-    vec4 finalColor = vec4(r, g, b, 1.);
-    vec4 edgeColor = vec4(0.2, 0.8, 0.4, 1.);
+    if(density >= .5)
+      finalColor = vec4(1., 1., 1., density - .45);
+    else if(density > .4)
+      finalColor = vec4(1., 1., 1., .05);
+    else
+      discard;
 
-    //center of uv coords for object
-    vec2 center = vec2(0., 0.);
-    //darkens edges by mixing edgeColor as uvCoords get further from center
-    finalColor = mix(finalColor, edgeColor, distance(coords, center));
+    finalColor = clamp(finalColor,0.,1.);
 
     gl_FragColor = finalColor;
 
 }
 </script>
-
 <!-- regular shaders --->
 
 <script id="vshader1" type="x-shader/x-vertex">
@@ -215,6 +272,8 @@ vec4 getLightColor(
 void main()
 {
 
+  float alpha = paintcolor_var.a;
+
     // Surface normal
      vec3 surfnorm = normalize(surfnorm_var);
 
@@ -226,7 +285,7 @@ void main()
                              paintcolor_var, surfpt_var, surfnorm);
 
 
-    finalcolor.a = 1.0;
+    finalcolor.a = alpha;
 
     gl_FragColor = finalcolor;
 
@@ -244,6 +303,7 @@ var gl;
 var shader;
 var planetShader;
 var starShader;
+var atmosShader;
 
 
 var yaw=0., pitch=0., roll=0.;  //scalars for ship rotations
@@ -257,6 +317,13 @@ var stars = [];
 var starNum = 50;
 var planets = [];
 var planetNum = 5;
+
+
+//texture
+var tex0;
+var tex1;
+var img0;
+var img1;
 
 
 function genStars(num)
@@ -319,8 +386,184 @@ function genPlanets(num)
     planets[i].y=y;
     planets[i].z=z;
     planets[i].size = Math.random()*5.+2.;
+    planets[i].atmosRot = 0.;
   }
 }
+
+function genHeightMap(size)
+{
+  //make regular texture but only use r bits
+  img0 = new Uint8Array(size*size*4);
+
+//populate height map
+  for(var y = 0; y < size; y++)
+    for(var x = 0; x < size; x++)
+    {
+      img0[4*y*size + 4*x] = (Math.cos(y/Math.random()*size/500.) +
+                            Math.cos(x/Math.random()*size/500.) + 2.)/4.*255.;
+    }
+}
+
+function genAtmosHeightMap(size)
+{
+  //make regular texture but only use r bits
+  img1 = new Uint8Array(size*size*4);
+
+//populate height map
+  for(var y = 0; y < size; y++)
+    for(var x = 0; x < size; x++)
+    {
+      img1[4*y*size + 4*x] = (Math.cos(y/Math.random()*size/500.) +
+                            Math.cos(x/Math.random()*size/500.) + 2.)/4.*255.;
+    }
+}
+
+
+//makeTextures
+function makePlanetTexture()
+{
+  var size = 64;
+  genHeightMap(size);
+  tex0 = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex0);
+  var level = 0;
+  var internalformat = gl.RGBA;
+  var width = size;
+  var height = size;
+  var border = 0;
+  var srcformat = gl.RGBA;
+  var srctype = gl.UNSIGNED_BYTE;
+  var pixels = img0;
+  gl.texImage2D(gl.TEXTURE_2D, level, internalformat,
+                width, height, border, srcformat, srctype,
+                pixels);
+  // gl.texImage2D(gl.TEXTURE_2D, level, internalformat,
+  //               2, 2, border, srcformat, srctype,
+  //               pixels);
+  // tex0 = gl.createTexture();
+  // gl.activeTexture(gl.TEXTURE0);
+  // gl.bindTexture(gl.TEXTURE_2D, tex0);
+  // img0 = new Image();
+  // img0.src = "test.jpg";
+  // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img0);
+  gl.generateMipmap(gl.TEXTURE_2D);
+
+  gl.texParameteri(gl.TEXTURE_2D,
+      gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,
+      gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,
+      gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,
+      gl.TEXTURE_WRAP_T, gl.REPEAT);
+
+  gl.useProgram(planetShader);
+  var loc = gl.getUniformLocation(planetShader, 'tex0');
+  if (loc != -1)
+  {
+      gl.uniform1i(loc, 0);
+  }
+}
+
+function makeAtmosTexture()
+{
+  var size = 64;
+  genAtmosHeightMap(size);
+  tex1 = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, tex1);
+  var level = 0;
+  var internalformat = gl.RGBA;
+  var width = size;
+  var height = size;
+  var border = 0;
+  var srcformat = gl.RGBA;
+  var srctype = gl.UNSIGNED_BYTE;
+  var pixels = img1;
+  gl.texImage2D(gl.TEXTURE_2D, level, internalformat,
+                width, height, border, srcformat, srctype,
+                pixels);
+
+  gl.generateMipmap(gl.TEXTURE_2D);
+
+  gl.texParameteri(gl.TEXTURE_2D,
+      gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,
+      gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,
+      gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,
+      gl.TEXTURE_WRAP_T, gl.REPEAT);
+
+  gl.useProgram(atmosShader);
+  var loc = gl.getUniformLocation(atmosShader, 'tex1');
+  if (loc != -1)
+  {
+      gl.uniform1i(loc, 0);
+  }
+}
+
+//???
+function changeAtmos()
+{
+  var size = 64;
+  for(var i = 0; i < 100; i++)
+  {
+    var dir;
+    var x = Math.floor(Math.random() * size);
+    var y = Math.floor(Math.random() * size);
+
+    if(x > size/2.)
+      dir = -1;
+    else
+      dir = 1;
+
+    while(img1[4*size*y + 4*x] <= .5)
+      x += dir;
+
+    img1[4*size*y + 4*x] -= .1;
+
+    while(img1[4*size*y + 4*x] > .25)
+      x += dir;
+
+    img1[4*size*y + 4*x] += .1;
+  }
+  gl.deleteTexture(tex1);
+  tex1 = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, tex1);
+  var level = 0;
+  var internalformat = gl.RGBA;
+  var width = size;
+  var height = size;
+  var border = 0;
+  var srcformat = gl.RGBA;
+  var srctype = gl.UNSIGNED_BYTE;
+  var pixels = img1;
+  gl.texImage2D(gl.TEXTURE_2D, level, internalformat,
+                width, height, border, srcformat, srctype,
+                pixels);
+
+  gl.generateMipmap(gl.TEXTURE_2D);
+
+  gl.texParameteri(gl.TEXTURE_2D,
+      gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,
+      gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,
+      gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,
+      gl.TEXTURE_WRAP_T, gl.REPEAT);
+
+  gl.useProgram(atmosShader);
+  var loc = gl.getUniformLocation(atmosShader, 'tex1');
+  if (loc != -1)
+  {
+      gl.uniform1i(loc, 0);
+  }
+}
+
 
 function app(canvasId)
 {
@@ -332,6 +575,7 @@ function app(canvasId)
     shader = makeProgramObjectFromIds(gl, 'vshader1', 'fshader1');
     planetShader = makeProgramObjectFromIds(gl, 'vshader2', 'fshader2');
     starShader = makeProgramObjectFromIds(gl, 'vshader3', 'fshader3');
+    atmosShader = makeProgramObjectFromIds(gl, 'vshader4', 'fshader4');
 
     //register callbacks
     registerDisplay(displayFunc);
@@ -352,6 +596,16 @@ function app(canvasId)
 
     genStars(starNum);
     genPlanets(planetNum);
+    //gen planet texture
+    // var size = 64;
+    // genAtmosHeightMap(size);
+    makePlanetTexture();
+    makeAtmosTexture();
+    //genImgFromHeightMap(size);
+ //img0 = new Uint8Array([.9*255.,0.,0.,0.,.6*255.,0.,0.,0.,.45*255.,0.,0.,0.,.1*255.,0.,0.,0.]);
+
+
+
 
     gl.enable(gl.DEPTH_TEST);
   }
@@ -369,10 +623,16 @@ function app(canvasId)
         objscale=0.3;
         mat4.scale(gl.mvMatrix, gl.mvMatrix,
              [objscale, objscale, objscale]);
-
+             //turn on blending
+             gl.enable(gl.BLEND);
+             gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+             gl.depthMask(false);
         drawSphere(gl,
             .5, 40, 20, //rad, slice, stack
-            1,0,0); //rgb
+            1.,0.,0.,.75); //rgba
+            //turn off blending
+            gl.disable(gl.BLEND);
+            gl.depthMask(true);
       popMvMatrix(gl);
   }
 
@@ -399,6 +659,9 @@ function app(canvasId)
 
   function drawPlanet(planet)
   {
+    gl.useProgram(planetShader);
+    // gl.activeTexture(gl.TEXTURE0);
+    // gl.bindTexture(gl.TEXTURE_2D, tex0);
     pushMvMatrix(gl);
       mat4.translate(gl.mvMatrix, gl.mvMatrix,
             [planet.x,planet.y,planet.z]);
@@ -408,7 +671,24 @@ function app(canvasId)
       drawSphere(gl,
           1., 40, 20, //rad, slice, stack
           0.,0.,1.); //rgb
+//drawSquare(gl,5.,1.,1.,1.,1.);
 
+  //draw atmosphere
+  pushMvMatrix(gl);
+    gl.useProgram(atmosShader);
+    //turn on blending
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);  //dont write to depth buffer, needed for layering
+mat4.rotate(gl.mvMatrix, gl.mvMatrix, planet.atmosRot, [0.,1.,0.]);
+planet.atmosRot += Math.random() / 1000.;//.001;
+   drawSphere(gl,
+       1.025, 40, 20, //rad, slice, stack
+       0.,0.,1.); //rgb
+popMvMatrix(gl);
+  //turn off blending
+  gl.disable(gl.BLEND);
+  gl.depthMask(true);
 
     popMvMatrix(gl);
   }
@@ -609,6 +889,12 @@ function app(canvasId)
   function idleFunc(e)
   {
       var elapsedtime = getElapsedTime(0.1);
+      postRedisplay();
+
+
+      //need to figure out how to update bound textures
+      //changeAtmos();
+
 
       if(thrustOn)
       {
@@ -652,7 +938,7 @@ function app(canvasId)
 
     }
 
-    postRedisplay();
+  //  postRedisplay();
   }
 
 </script>
