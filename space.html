@@ -2,6 +2,9 @@
   space.html
   Sam Erie
   serie@alaska.edu
+  
+  Star particle system by Aisha Peters,
+  based on code by Glenn Chappell
 
 
   CS 381
@@ -315,8 +318,8 @@ var rotMatrix;
 var camMatrix;
 var vel=.15; //scalar for pos+vel*dir
 var thrustOn = false;
-var starNum = 100;		  // Number of stars
-var velfact = 0.03;       // Multiplier for star velocity
+var starNum = 500;		  // Number of stars
+var velfact = 0.04;       // Multiplier for star velocity
 var locs;               // Star locaations (world coords)
                         //  Each item is glMatrix vec3
 var vels;               // Star velocities (world coords/sec)
@@ -357,7 +360,7 @@ function app(canvasId)
     //event handlers
     document.addEventListener('keypress', keyboardFunc, false);
 
-	  //init ship orientation
+	//init ship orientation
     pos = vec3.fromValues(0., 0., 0.);
     dir = vec3.fromValues(0., 0., 1.);
 
@@ -368,12 +371,12 @@ function app(canvasId)
 
     //init objects
     genPlanets(planetNum);
-    initStars();
+    genStars();
 
-	 //init textures
+	//init textures
     makePlanetTexture();
     makeAtmosTexture();
-	  makeStarTextures();
+	makeStarTextures();
 
     //enable hsr
     gl.enable(gl.DEPTH_TEST);
@@ -384,9 +387,9 @@ function app(canvasId)
 /* Initialize Objects                                         */
 /**************************************************************/
 
-// initStars
+// genStars
 // Initialize star locs & vels arrays.
-function initStars()
+function genStars()
 {
     locs = new Array();
     vels = new Array();
@@ -395,7 +398,7 @@ function initStars()
         var loc;  // Location of this object
         var vel;  // Velocity of this object
 
-        // All stars start @ random
+        // All stars start @ random locations
         loc = vec3.fromValues(	Math.random()*100-50,
 								Math.random()*100-50,
 								Math.random()*100-50);
@@ -751,7 +754,7 @@ function drawStars()
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
 
-    // Loop thru anumated objects
+    // Loop thru stars
     for (var i = 0; i < starNum; ++i)
     {
         pushMvMatrix(gl);
@@ -763,7 +766,7 @@ function drawStars()
         // Billboarding
         doBillboard();
 
-        // Draw it
+        // Draw objects for star texture
     		var objscale = .2;
     		mat4.scale(gl.mvMatrix, gl.mvMatrix,
     			[objscale, objscale, objscale]);
@@ -958,7 +961,7 @@ function idleFunc(e)
   // Loop thru animated stars
   for (var i = 0; i < starNum; ++i)
   {
-		// Modify velocity with gravity
+		// Modify star velocity and direction at random
 		var starDir = Math.random()*2;
 		var starChoice = Math.random();
 		if(starChoice==0)vels[i][starDir] -= Math.random()*elapsedtime;
@@ -968,13 +971,6 @@ function idleFunc(e)
 		locs[i][0] += vels[i][0] * elapsedtime;
 		locs[i][1] += vels[i][1] * elapsedtime;
 		locs[i][2] += vels[i][2] * elapsedtime;
-
-		// <!-- if(locs[i][0] > 15.) locs[i][1] = -14.; //x -->
-		// <!-- if(locs[i][1] > 15.) locs[i][1] = -14.; //y -->
-		// <!-- if(locs[i][2] > 30.) locs[i][1] = -14.; //z -->
-		// <!-- if(locs[i][0] < -15.) locs[i][1] = 14.; //-x -->
-		// <!-- if(locs[i][1] < -15.) locs[i][1] = 14.; //-y -->
-		// <!-- if(locs[i][2] < -15.) locs[i][1] = -14.; //z -->
   }
 
   //post redisplay every frame because scene constantly updating
