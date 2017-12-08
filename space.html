@@ -2,6 +2,8 @@
   space.html
   Sam Erie
   serie@alaska.edu
+
+
   CS 381
   Final Project
   WebGl program, 3rd person flight sim
@@ -10,13 +12,20 @@
 <!DOCTYPE html>
 <html>
 <style>
-
-ul, canvas
+ul
+{
+  position: absolute;
+  list-style: none;
+  color: white;
+  margin-top: 40px;
+  font-size: 18px;
+}
+canvas
 {
   position: absolute;
 }
-
 </style>
+
 <head>
   <meta charset="utf-8">
   <title>Space Sim</title>
@@ -24,37 +33,43 @@ ul, canvas
 
 <body id="pageBody" onload="app('appCanvas')">
 
-
   <canvas id="appCanvas" width="500" height="400"></canvas>
 
-
+  <ul>
+    <li>Pitch: - w + s</li>
+    <li>Yaw: - q + e</li>
+    <li>Roll: - a + d</li>
+    <li>Thrust: toggle spacebar</li>
+  </ul>
 
 <script type="text/javascript" src="gl-matrix-min.js"></script>
 <script type="text/javascript" src="quoll.js"></script>
+<script type="text/javascript" src="pnoise.js"></script>
 
 <!-- ************************************************************** -->
 <!-- * GLSL Shaders                                               * -->
 <!-- ************************************************************** -->
+
 <!-- star shaders -->
 <script id="vshader3" type="x-shader/x-vertex">
 
-uniform mat4 modelViewMatrix;
 uniform mat4 projectionMatrix;
+uniform mat4 modelViewMatrix;
 
 attribute vec4 vertex_attr;
+attribute vec4 texcoord_attr;
 
-varying vec2 coords;
+varying vec2 texcoord_var;
 
 void main()
 {
-    // Compute projected vertex position
+    // Compute texture coordinates
+    vec3 texcoord = texcoord_attr.stp / texcoord_attr.q;
+    texcoord_var = texcoord.st;
+
+    // Compute vertex position
     gl_Position = projectionMatrix * modelViewMatrix * vertex_attr;
 
-    //texture coordinates
-    coords = vertex_attr.xy / vertex_attr.w;
-
-    //increase point size
-    gl_PointSize = 15.;
 }
 </script>
 <script id="fshader3" type="x-shader/x-fragment">
@@ -63,27 +78,19 @@ void main()
 precision mediump float;
 #endif
 
-varying vec2 coords;
+varying vec2 texcoord_var;
 
+uniform sampler2D tex2;     // Our texture
 
 void main()
 {
+    // Get color from texture
+    vec4 texcolor = texture2D(tex2, texcoord_var);
 
-  //currently only draws squares, need to figure out how to make fuzzy blobs
-
-    vec4 finalColor = vec4(0.7, 1., 1., 0.3);
-    // vec4 edgeColor = vec4(0.3, 0.3, 0.3, 0.3);
-    // //center of uv coords for object
-    // vec2 center = vec2(0., 0.);
-    // //darkens edges by mixing edgeColor as uvCoords get further from center
-    // finalColor = mix(finalColor, edgeColor, distance(coords, center));
-
-    gl_FragColor = finalColor;
-
+    // Send color to framebuffer
+    gl_FragColor = texcolor;
 }
 </script>
-
-
 
 <!-- planet shaders -->
 <script id="vshader2" type="x-shader/x-vertex">
@@ -122,25 +129,29 @@ uniform sampler2D tex0;
 
 void main()
 {
+    //world color
     vec4 water = vec4(13./255., 69./255., 252./255., 1.);
-  //  vec4 deep = vec4(6./255., 23./255., 82./255., 1.);
     vec4 deep = vec4(10./255., 43./255., 152./255., 1.);
     vec4 ground = vec4(33./255., 99./255., 5./255., 1.);
     vec4 mount = vec4(115./255., 22./255., 69./255., 1.);
+
+    //from heightmap
     float height = texture2D(tex0, coords).r;
     vec4 finalColor;
 
-    if(height < .7)
-      finalColor = mix(water, deep, (.7-height)*(10./7.));
+    //map colors
+    if(height < .5)
+      finalColor = mix(water, deep, (.5-height)*2.);
     else
       finalColor = mix(mount, ground, height);
 
     finalColor = clamp(finalColor,0.,1.);
-  //  finalColor = texture2D(tex0, coords);
+
     gl_FragColor = finalColor;
 
 }
 </script>
+
 <!-- atmosphere shaders -->
 <script id="vshader4" type="x-shader/x-vertex">
 // Vertex Shader #1
@@ -178,25 +189,19 @@ uniform sampler2D tex1;
 
 void main()
 {
-
+    //from heightmap
     float density = texture2D(tex1, coords).r;
+
     vec4 finalColor;
-
-    if(density >= .5)
-      finalColor = vec4(1., 1., 1., density - .45);
-    else if(density > .4)
-      finalColor = vec4(1., 1., 1., .05);
-    else
-      discard;
-
+    finalColor = vec4(1., 1., 1., density - .45);
     finalColor = clamp(finalColor,0.,1.);
 
     gl_FragColor = finalColor;
 
 }
 </script>
-<!-- regular shaders --->
 
+<!-- regular shaders --->
 <script id="vshader1" type="x-shader/x-vertex">
 // Vertex Shader #1
 
@@ -230,7 +235,6 @@ void main()
 
     // Surface normal (camera coords)
     surfnorm_var = normalize(normalMatrix * normal_attr);
-
 }
 </script>
 <script id="fshader1" type="x-shader/x-fragment">
@@ -268,12 +272,8 @@ vec4 getLightColor(
                  0., 1.);
 }
 
-
 void main()
 {
-
-  float alpha = paintcolor_var.a;
-
     // Surface normal
      vec3 surfnorm = normalize(surfnorm_var);
 
@@ -281,22 +281,25 @@ void main()
     vec4 lightcolor = vec4(1., 0.9, 1., 1.);
     vec4 lightpos4 = vec4(0., -15., 5., 20.);  // Cam coords
 
-    vec4 finalcolor = getLightColor(lightcolor, lightpos4,
+    vec4 finalcolor = paintcolor_var;
+    float alpha = paintcolor_var.a;
+    //only light ship, not propulsion which uses blending
+    if(alpha == 1.)
+       finalcolor = getLightColor(lightcolor, lightpos4,
                              paintcolor_var, surfpt_var, surfnorm);
-
 
     finalcolor.a = alpha;
 
     gl_FragColor = finalcolor;
-
 }
 </script>
 
 <!-- END GLSL Shaders -->
 
-<!--   App  -->
+<!-- ************************************************************** -->
+<!-- * Global Objects                                             * -->
+<!-- ************************************************************** -->
 <script type="text/javascript">
-
 
 // global app members
 var gl;
@@ -305,7 +308,6 @@ var planetShader;
 var starShader;
 var atmosShader;
 
-
 var yaw=0., pitch=0., roll=0.;  //scalars for ship rotations
 var pos, dir; //vec3 for ship translations
 
@@ -313,29 +315,110 @@ var rotMatrix;
 var camMatrix;
 var vel=.15; //scalar for pos+vel*dir
 var thrustOn = false;
-var stars = [];
-var starNum = 50;
+var starNum = 100;		  // Number of stars
+var velfact = 0.03;       // Multiplier for star velocity
+var locs;               // Star locaations (world coords)
+                        //  Each item is glMatrix vec3
+var vels;               // Star velocities (world coords/sec)
+                        //  Each item if glMatrix vec3
 var planets = [];
 var planetNum = 5;
-
 
 //texture
 var tex0;
 var tex1;
+var tex2;
 var img0;
 var img1;
+var img2;
 
 
-function genStars(num)
+/**************************************************************/
+/* App Main                                                   */
+/**************************************************************/
+function app(canvasId)
 {
-  for(var i = 0; i < num; i++)
-  {
-    stars.push(new Object());
-    stars[i].x = Math.floor((Math.random()*80)-40);
-    stars[i].y = Math.floor((Math.random()*80)-40);
-    stars[i].z = Math.floor((Math.random()*80)-40);
-    stars[i].size = Math.random()*.25+.01;
+    //init WebGl
+    gl = quollInit(canvasId);
+    if(!gl) return; //exits if could not Initialize gl
+
+    //shaders
+    shader = makeProgramObjectFromIds(gl, 'vshader1', 'fshader1');
+    planetShader = makeProgramObjectFromIds(gl, 'vshader2', 'fshader2');
+    starShader = makeProgramObjectFromIds(gl, 'vshader3', 'fshader3');
+    atmosShader = makeProgramObjectFromIds(gl, 'vshader4', 'fshader4');
+
+    //register callbacks
+    registerDisplay(displayFunc);
+    registerReshape(reshapeFunc);
+    registerIdle(idleFunc);
+    canvasFullWindow(true);
+
+    //event handlers
+    document.addEventListener('keypress', keyboardFunc, false);
+
+	  //init ship orientation
+    pos = vec3.fromValues(0., 0., 0.);
+    dir = vec3.fromValues(0., 0., 1.);
+
+    //init camera
+    camMatrix = mat4.create();
+    mat4.translate(camMatrix, camMatrix,
+        [0.,0.,-4.]);
+
+    //init objects
+    genPlanets(planetNum);
+    initStars();
+
+	 //init textures
+    makePlanetTexture();
+    makeAtmosTexture();
+	  makeStarTextures();
+
+    //enable hsr
+    gl.enable(gl.DEPTH_TEST);
   }
+
+
+/**************************************************************/
+/* Initialize Objects                                         */
+/**************************************************************/
+
+// initStars
+// Initialize star locs & vels arrays.
+function initStars()
+{
+    locs = new Array();
+    vels = new Array();
+    for (var i = 0; i < starNum; ++i)
+    {
+        var loc;  // Location of this object
+        var vel;  // Velocity of this object
+
+        // All stars start @ random
+        loc = vec3.fromValues(	Math.random()*100-50,
+								Math.random()*100-50,
+								Math.random()*100-50);
+
+        // Velocity <- random vector of length <= 1 w/ nonneg y coord
+        do
+        {
+            vel = vec3.fromValues(
+                Math.random()*2.-1.,   // Random in [-1., 1.]
+                Math.random(),         // Random in [ 0., 1.]
+                Math.random()*2.-1.);  // Random in [-1., 1.]
+        }
+        while (vel[0]*vel[0] + vel[1]*vel[1] + vel[2]*vel[2] > 1.);
+
+        // Scale velocity by velfact
+        vel[0] *= velfact;
+        vel[1] *= velfact;
+        vel[2] *= velfact;
+
+        // Add location & velocity to list
+        locs.push(loc);
+        vels.push(vel);
+    }
 }
 
 function genPlanets(num)
@@ -345,12 +428,13 @@ function genPlanets(num)
     planets.push(new Object());
     var seperated = false;
     var seed;
-    var minDist = 40.;
+    var minDist = 50.;
     var c;
     var x;
     var y;
     var z;
 
+    //clunky way to keep planets seperated
     while(!seperated)
     {
       c = Math.floor((Math.random()*2))
@@ -392,34 +476,102 @@ function genPlanets(num)
 
 function genHeightMap(size)
 {
+  var perlin = new Array(size*size);
+  fnoise2d(perlin, size, size, 10, 10);
+  normalize2d(perlin, size, size);
   //make regular texture but only use r bits
   img0 = new Uint8Array(size*size*4);
 
-//populate height map
+  //populate height map
   for(var y = 0; y < size; y++)
     for(var x = 0; x < size; x++)
     {
-      img0[4*y*size + 4*x] = (Math.cos(y/Math.random()*size/500.) +
-                            Math.cos(x/Math.random()*size/500.) + 2.)/4.*255.;
+      //only set r of rgba values
+      img0[4*y*size + 4*x] = (perlin[y*size + x] + 1.)/2.*255.;
     }
 }
 
 function genAtmosHeightMap(size)
 {
+  var perlin = new Array(size*size);
+  filterpnoise2d(perlin, size, size, 20, 20);
+  normalize2d(perlin, size, size);
   //make regular texture but only use r bits
   img1 = new Uint8Array(size*size*4);
 
-//populate height map
+  //populate height map
   for(var y = 0; y < size; y++)
     for(var x = 0; x < size; x++)
     {
-      img1[4*y*size + 4*x] = (Math.cos(y/Math.random()*size/500.) +
-                            Math.cos(x/Math.random()*size/500.) + 2.)/4.*255.;
+      //only set r of rgba values
+      img1[4*y*size + 4*x] = (perlin[y*size + x] + 1.)/2.*255.;
     }
 }
 
+/**************************************************************/
+/* Make Textures                                              */
+/**************************************************************/
 
-//makeTextures
+// makeStarTextures
+// Make star textures in global texture objects
+function makeStarTextures()
+{
+    tex2 = gl.createTexture();
+
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, tex2);
+
+    // Make the image
+    var TEX_DIM = 256;
+    img2 = new Uint8Array(TEX_DIM * TEX_DIM * 4)
+    var k = 4.0;
+    for (var i = 0; i < TEX_DIM; ++i)
+    {
+        var x = i/(TEX_DIM-1) * 2. - 1.;
+        for (var j = 0; j < TEX_DIM; ++j)
+        {
+            var y = j/(TEX_DIM-1) * 2. - 1.;
+            var distsq = x*x + y*y;
+            var alpha = 0.;
+            if (distsq < 1.)
+                alpha = (Math.exp(-k*distsq) - Math.exp(-k)) / (1.-Math.exp(-k));
+            img2[i*TEX_DIM*4+j*4+0] = 255;
+            img2[i*TEX_DIM*4+j*4+1] = 255;
+            img2[i*TEX_DIM*4+j*4+2] = 240;
+            img2[i*TEX_DIM*4+j*4+3] = alpha * 255;
+        }
+    }
+
+    var level = 0;
+    var internalformat = gl.RGBA;
+    var width = TEX_DIM;
+    var height = TEX_DIM;
+    var border = 0;
+    var srcformat = gl.RGBA;
+    var srctype = gl.UNSIGNED_BYTE;
+    var pixels = img2;
+    gl.texImage2D(gl.TEXTURE_2D, level, internalformat,
+                  width, height, border, srcformat, srctype,
+                  pixels);
+    gl.generateMipmap(gl.TEXTURE_2D);
+
+    gl.texParameteri(gl.TEXTURE_2D,
+        gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,
+        gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,
+        gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,
+        gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    gl.useProgram(starShader);
+    var loc = gl.getUniformLocation(starShader, 'tex2');
+    if (loc != -1)
+    {
+        gl.uniform1i(loc, 2);
+    }
+}
+
 function makePlanetTexture()
 {
   var size = 64;
@@ -438,15 +590,6 @@ function makePlanetTexture()
   gl.texImage2D(gl.TEXTURE_2D, level, internalformat,
                 width, height, border, srcformat, srctype,
                 pixels);
-  // gl.texImage2D(gl.TEXTURE_2D, level, internalformat,
-  //               2, 2, border, srcformat, srctype,
-  //               pixels);
-  // tex0 = gl.createTexture();
-  // gl.activeTexture(gl.TEXTURE0);
-  // gl.bindTexture(gl.TEXTURE_2D, tex0);
-  // img0 = new Image();
-  // img0.src = "test.jpg";
-  // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img0);
   gl.generateMipmap(gl.TEXTURE_2D);
 
   gl.texParameteri(gl.TEXTURE_2D,
@@ -500,448 +643,377 @@ function makeAtmosTexture()
   var loc = gl.getUniformLocation(atmosShader, 'tex1');
   if (loc != -1)
   {
-      gl.uniform1i(loc, 0);
+      gl.uniform1i(loc, 1);
   }
 }
 
-//???
-function changeAtmos()
+/**************************************************************/
+/* Camera Functions                                           */
+/**************************************************************/
+
+function setCam()
 {
-  var size = 64;
-  for(var i = 0; i < 100; i++)
-  {
-    var dir;
-    var x = Math.floor(Math.random() * size);
-    var y = Math.floor(Math.random() * size);
-
-    if(x > size/2.)
-      dir = -1;
-    else
-      dir = 1;
-
-    while(img1[4*size*y + 4*x] <= .5)
-      x += dir;
-
-    img1[4*size*y + 4*x] -= .1;
-
-    while(img1[4*size*y + 4*x] > .25)
-      x += dir;
-
-    img1[4*size*y + 4*x] += .1;
-  }
-  gl.deleteTexture(tex1);
-  tex1 = gl.createTexture();
-  gl.activeTexture(gl.TEXTURE1);
-  gl.bindTexture(gl.TEXTURE_2D, tex1);
-  var level = 0;
-  var internalformat = gl.RGBA;
-  var width = size;
-  var height = size;
-  var border = 0;
-  var srcformat = gl.RGBA;
-  var srctype = gl.UNSIGNED_BYTE;
-  var pixels = img1;
-  gl.texImage2D(gl.TEXTURE_2D, level, internalformat,
-                width, height, border, srcformat, srctype,
-                pixels);
-
-  gl.generateMipmap(gl.TEXTURE_2D);
-
-  gl.texParameteri(gl.TEXTURE_2D,
-      gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,
-      gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,
-      gl.TEXTURE_WRAP_S, gl.REPEAT);
-  gl.texParameteri(gl.TEXTURE_2D,
-      gl.TEXTURE_WRAP_T, gl.REPEAT);
-
-  gl.useProgram(atmosShader);
-  var loc = gl.getUniformLocation(atmosShader, 'tex1');
-  if (loc != -1)
-  {
-      gl.uniform1i(loc, 0);
-  }
-}
-
-
-function app(canvasId)
-{
-
-    gl = quollInit(canvasId);
-    if(!gl) return; //exits if could not Initialize gl
-
-    //shaders
-    shader = makeProgramObjectFromIds(gl, 'vshader1', 'fshader1');
-    planetShader = makeProgramObjectFromIds(gl, 'vshader2', 'fshader2');
-    starShader = makeProgramObjectFromIds(gl, 'vshader3', 'fshader3');
-    atmosShader = makeProgramObjectFromIds(gl, 'vshader4', 'fshader4');
-
-    //register callbacks
-    registerDisplay(displayFunc);
-    registerReshape(reshapeFunc);
-    registerIdle(idleFunc);
-    canvasFullWindow(true);
-
-
-    //event handlers
-    document.addEventListener('keypress', keyboardFunc, false);
-
-    pos = vec3.fromValues(0., 0., 0.);
-    dir = vec3.fromValues(0., 0., 1.);
-
+    var mb = vec3.fromValues(0.,0.,-4.);
     camMatrix = mat4.create();
+
     mat4.translate(camMatrix, camMatrix,
-        [0.,0.,-4.]);
+        mb);
+    mat4.translate(camMatrix, camMatrix,
+        [0.,-0.35,0.]);
+    mat4.rotate(camMatrix, camMatrix, -Math.PI/7., [-1.,0.,0.]);
 
-    genStars(starNum);
-    genPlanets(planetNum);
-    //gen planet texture
-    // var size = 64;
-    // genAtmosHeightMap(size);
-    makePlanetTexture();
-    makeAtmosTexture();
-    //genImgFromHeightMap(size);
- //img0 = new Uint8Array([.9*255.,0.,0.,0.,.6*255.,0.,0.,0.,.45*255.,0.,0.,0.,.1*255.,0.,0.,0.]);
+    var pitchMatrix = mat4.create();
+    var right = vec3.fromValues(-1.,0.,0.);
+    mat4.fromRotation(pitchMatrix, pitch, right);
+
+    var yawMatrix = mat4.create();
+    var up = vec3.fromValues(0.,-1.,0.);
+    mat4.fromRotation(yawMatrix, yaw, up);
+
+    var rollMatrix = mat4.create();
+    var fwd = vec3.fromValues(0.,0.,1.);
+    mat4.fromRotation(rollMatrix, roll, fwd);
+
+    mat4.multiply(pitchMatrix, pitchMatrix,yawMatrix);
+
+    mat4.multiply(camMatrix, camMatrix, pitchMatrix);
+
+    var campos = vec3.create();
+    vec3.copy(campos, pos);
+
+    vec3.scale(campos, campos, -1.);
+
+    mat4.translate(camMatrix, camMatrix,
+        campos);
+}
+
+function rotateMatrix()
+{
+  var pitchMatrix = mat4.create();
+  var right = vec3.fromValues(1.,0.,0.);
+  mat4.fromRotation(pitchMatrix, pitch, right);
+  mat4.translate(pitchMatrix, pitchMatrix, [0.,0.,-.5]);
+
+  var yawMatrix = mat4.create();
+  var up = vec3.fromValues(0.,1.,0.);
+  mat4.fromRotation(yawMatrix, yaw, up);
+
+  var rollMatrix = mat4.create();
+  var fwd = vec3.fromValues(0.,0.,-1.);
+  mat4.fromRotation(rollMatrix, roll, fwd);
+  mat4.translate(rollMatrix, rollMatrix, [0.,-.1,.0]);
+
+  mat4.multiply(pitchMatrix, yawMatrix, pitchMatrix);
+  mat4.multiply(pitchMatrix, rollMatrix, pitchMatrix);
+
+  var returnMatrix = pitchMatrix;
+
+  //set forward direction of ship with cross product of BK X RT vectors in modelViewMatrix
+  //was a little guess and check figuring this out, with some help from message boards
+  //https://www.opengl.org/discussion_boards/showthread.php/175515-Get-Direction-from-Transformation-Matrix-or-Quat
+  up = vec3.fromValues(returnMatrix[4],returnMatrix[5],returnMatrix[6]);
+  vec3.normalize(up, up);
+  right = vec3.fromValues(returnMatrix[0],returnMatrix[1],returnMatrix[2]);
+  vec3.normalize(right, right);
+  vec3.cross(dir, up,
+                right);
+  vec3.normalize(dir, dir);
+
+  return returnMatrix;
+}
+
+// doBillboard
+// Do billboarding using current model/view matrix (gl.mvMatrix).
+// Does rotation that points <0.,0.,1.> at camera. bb is kind of
+function doBillboard()
+{
+    var c = whereAmI(gl.mvMatrix);
+
+    var dot = c[2] / Math.sqrt(c[0]*c[0] + c[1]*c[1] + c[2]*c[2]);
+    var ang = Math.acos(dot);
+    mat4.rotate(gl.mvMatrix, gl.mvMatrix,
+        ang, [-c[1],c[0],0.]);
+}
 
 
+/**************************************************************/
+/* Draw Functions                                             */
+/**************************************************************/
 
+// drawStars
+// Star drawing function.
+function drawStars()
+{
+ gl.useProgram(starShader);
 
-    gl.enable(gl.DEPTH_TEST);
-  }
-
-
-  function drawPropulsion()
-  {
-      var thrust = vec3.fromValues(0.,0.25,.95);
-
-      pushMvMatrix(gl);
-
-        mat4.translate(gl.mvMatrix, gl.mvMatrix,
-              thrust);
-
-        objscale=0.3;
-        mat4.scale(gl.mvMatrix, gl.mvMatrix,
-             [objscale, objscale, objscale]);
-             //turn on blending
-             gl.enable(gl.BLEND);
-             gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-             gl.depthMask(false);
-        drawSphere(gl,
-            .5, 40, 20, //rad, slice, stack
-            1.,0.,0.,.75); //rgba
-            //turn off blending
-            gl.disable(gl.BLEND);
-            gl.depthMask(true);
-      popMvMatrix(gl);
-  }
-
-
-
-  function drawStar(star)
-  {
-    pushMvMatrix(gl);
-      mat4.translate(gl.mvMatrix, gl.mvMatrix,
-            [star.x,star.y,star.z]);
-
-      mat4.scale(gl.mvMatrix, gl.mvMatrix,
-           [star.size,star.size,star.size]);
-      // drawSphere(gl,
-      //     .2, 40, 20, //rad, slice, stack
-      //     1,1,1); //rgb
-
-          primBegin(gl, gl.POINTS);
-            primColor(gl, 1., 1., 1.);
-            primVertex(gl, 0., 0., 0.);
-          primEnd(gl);
-    popMvMatrix(gl);
-  }
-
-  function drawPlanet(planet)
-  {
-    gl.useProgram(planetShader);
-    // gl.activeTexture(gl.TEXTURE0);
-    // gl.bindTexture(gl.TEXTURE_2D, tex0);
-    pushMvMatrix(gl);
-      mat4.translate(gl.mvMatrix, gl.mvMatrix,
-            [planet.x,planet.y,planet.z]);
-
-      mat4.scale(gl.mvMatrix, gl.mvMatrix,
-           [planet.size,planet.size,planet.size]);
-      drawSphere(gl,
-          1., 40, 20, //rad, slice, stack
-          0.,0.,1.); //rgb
-//drawSquare(gl,5.,1.,1.,1.,1.);
-
-  //draw atmosphere
-  pushMvMatrix(gl);
-    gl.useProgram(atmosShader);
-    //turn on blending
+	// Enable blend
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.depthMask(false);  //dont write to depth buffer, needed for layering
-mat4.rotate(gl.mvMatrix, gl.mvMatrix, planet.atmosRot, [0.,1.,0.]);
-planet.atmosRot += Math.random() / 1000.;//.001;
-   drawSphere(gl,
-       1.025, 40, 20, //rad, slice, stack
-       0.,0.,1.); //rgb
-popMvMatrix(gl);
+    gl.depthMask(false);
+
+    // Loop thru anumated objects
+    for (var i = 0; i < starNum; ++i)
+    {
+        pushMvMatrix(gl);
+
+        // Move to proper position
+        mat4.translate(gl.mvMatrix, gl.mvMatrix,
+            [locs[i][0], locs[i][1], locs[i][2]]);
+
+        // Billboarding
+        doBillboard();
+
+        // Draw it
+    		var objscale = .2;
+    		mat4.scale(gl.mvMatrix, gl.mvMatrix,
+    			[objscale, objscale, objscale]);
+        drawSquare(gl, 0.8, 0.6, 0.4);
+
+        popMvMatrix(gl);
+    }
+
+  // Disable blend
+  gl.disable(gl.BLEND);
+  gl.depthMask(true);
+  gl.useProgram(shader);
+}
+
+function drawPlanet(planet)
+{
+  gl.useProgram(planetShader);
+  pushMvMatrix(gl);
+    mat4.translate(gl.mvMatrix, gl.mvMatrix,
+          [planet.x,planet.y,planet.z]);
+
+    mat4.scale(gl.mvMatrix, gl.mvMatrix,
+         [planet.size,planet.size,planet.size]);
+    drawSphere(gl,
+        1., 40, 20, //rad, slice, stack
+        0.,0.,1.); //rgb
+
+    //draw atmosphere
+    pushMvMatrix(gl);
+      gl.useProgram(atmosShader);
+      //turn on blending
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);  //dont write to depth buffer, needed for layering
+      mat4.rotate(gl.mvMatrix, gl.mvMatrix, planet.atmosRot, [0.,1.,0.]);
+      planet.atmosRot += Math.random() / 1000.;
+      drawSphere(gl,
+         1.025, 40, 20, //rad, slice, stack
+         0.,0.,1.); //rgb
+    popMvMatrix(gl);
   //turn off blending
   gl.disable(gl.BLEND);
   gl.depthMask(true);
 
-    popMvMatrix(gl);
-  }
+  popMvMatrix(gl);
+}
 
-  function drawStars()
-  {
-    gl.useProgram(starShader);
-    gl.disable(gl.DEPTH_TEST);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    for(var i = 0; i < starNum; i++)
-    {
-      drawStar(stars[i]);
-    }
-    gl.useProgram(shader);
-    gl.enable(gl.DEPTH_TEST);
-    gl.disable(gl.BLEND);
+function drawPlanets()
+{
+  gl.useProgram(planetShader);
+  pushMvMatrix(gl);
 
-  }
-
-  function drawPlanets()
-  {
     for(var i = 0; i < planetNum; i++)
     {
       drawPlanet(planets[i]);
     }
 
-  }
+  popMvMatrix(gl);
+}
 
-  function drawShip()
-  {
-
-
-    pushMvMatrix(gl);
-    mat4.rotate(gl.mvMatrix, gl.mvMatrix, -Math.PI/2., [1.,0.,0.]);
-
-    //left top
-      primBegin(gl, gl.TRIANGLES);
-        primColor(gl, 0.7,0.7,0.9);
-        primVertex(gl, 0., -0.75, 0.5);
-        primColor(gl, 0.3,0.3,0.3);
-        primVertex(gl, 0., 1., 0.);
-        primVertex(gl, -0.5, -1., 0.);
-      primEnd(gl);
-    //right top
-      primBegin(gl, gl.TRIANGLES);
-        primColor(gl, 0.7,0.7,0.9);
-        primVertex(gl, 0., -0.75, 0.5);
-        primColor(gl, 0.3,0.3,0.3);
-        primVertex(gl, 0., 1., 0.);
-        primVertex(gl, 0.5, -1., 0.);
-      primEnd(gl);
-      //aft
-        primBegin(gl, gl.TRIANGLES);
-          primColor(gl, 0.5,0.5,0.6);
-          primVertex(gl, 0., -0.75, 0.5);
-          primColor(gl, 0.1,0.1,0.2);
-          primVertex(gl, 0.5, -1., 0.);
-          primVertex(gl, -0.5, -1., 0.);
-        primEnd(gl);
-        //base
-        primBegin(gl, gl.TRIANGLES);
-          primColor(gl, 0.3,0.3,0.4);
-          primVertex(gl, 0., 1., 0.);
-          primVertex(gl, 0.5, -1., 0.);
-          primVertex(gl, -0.5, -1., 0.);
-        primEnd(gl);
-    popMvMatrix(gl);
-  }
-
-  function setCam()
-  {
-      var mb = vec3.fromValues(0.,0.,-4.);
-      camMatrix = mat4.create();
-
-      mat4.translate(camMatrix, camMatrix,
-          mb);
-      mat4.translate(camMatrix, camMatrix,
-          [0.,-0.35,0.]);
-      mat4.rotate(camMatrix, camMatrix, -Math.PI/7., [-1.,0.,0.]);
-
-      var pitchMatrix = mat4.create();
-      var right = vec3.fromValues(-1.,0.,0.);
-      mat4.fromRotation(pitchMatrix, pitch, right);
-
-      var yawMatrix = mat4.create();
-      var up = vec3.fromValues(0.,-1.,0.);
-      mat4.fromRotation(yawMatrix, yaw, up);
-
-      var rollMatrix = mat4.create();
-      var fwd = vec3.fromValues(0.,0.,1.);
-      mat4.fromRotation(rollMatrix, roll, fwd);
-
-      mat4.multiply(pitchMatrix, pitchMatrix,yawMatrix);
-
-      mat4.multiply(camMatrix, camMatrix, pitchMatrix);
-
-      var campos = vec3.create();
-      vec3.copy(campos, pos);
-
-      vec3.scale(campos, campos, -1.);
-
-      mat4.translate(camMatrix, camMatrix,
-          campos);
-  }
-
-  function displayFunc()
-  {
-    gl.useProgram(shader);
-
-    gl.clearColor(0.2, 0.1,0.25, 1.);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    // camera
-    mat4.identity(gl.mvMatrix);
-    setCam();
-    mat4.multiply(gl.mvMatrix, gl.mvMatrix, camMatrix);
-
-    pushMvMatrix(gl);
-        drawStars();
-    popMvMatrix(gl);
-
-    pushMvMatrix(gl);
-    gl.useProgram(planetShader);
-
-    drawPlanets();
-
-    gl.useProgram(shader);
-    popMvMatrix(gl);
-
-    // transformations
-    mat4.translate(gl.mvMatrix, gl.mvMatrix,
-      pos); //pos add in idleFunc()
-
-    // rotate ship
-    rotMatrix = rotateMatrix();
-
-    mat4.multiply(gl.mvMatrix, gl.mvMatrix, rotMatrix);
+function drawShip()
+{
+  gl.useProgram(shader);
+  pushMvMatrix(gl);
 
     var objscale = 0.5;
     mat4.scale(gl.mvMatrix, gl.mvMatrix,
         [objscale, objscale, objscale]);
+    mat4.rotate(gl.mvMatrix, gl.mvMatrix, -Math.PI/2., [1.,0.,0.]);
 
-    drawShip();
+    //left top
+    primBegin(gl, gl.TRIANGLES);
+      primColor(gl, 0.7,0.7,0.9);
+      primVertex(gl, 0., -0.75, 0.5);
+      primColor(gl, 0.3,0.3,0.3);
+      primVertex(gl, 0., 1., 0.);
+      primVertex(gl, -0.5, -1., 0.);
+    primEnd(gl);
+    //right top
+    primBegin(gl, gl.TRIANGLES);
+      primColor(gl, 0.7,0.7,0.9);
+      primVertex(gl, 0., -0.75, 0.5);
+      primColor(gl, 0.3,0.3,0.3);
+      primVertex(gl, 0., 1., 0.);
+      primVertex(gl, 0.5, -1., 0.);
+    primEnd(gl);
+    //aft
+    primBegin(gl, gl.TRIANGLES);
+      primColor(gl, 0.5,0.5,0.6);
+      primVertex(gl, 0., -0.75, 0.5);
+      primColor(gl, 0.1,0.1,0.2);
+      primVertex(gl, 0.5, -1., 0.);
+      primVertex(gl, -0.5, -1., 0.);
+    primEnd(gl);
+    //base
+    primBegin(gl, gl.TRIANGLES);
+      primColor(gl, 0.3,0.3,0.4);
+      primVertex(gl, 0., 1., 0.);
+      primVertex(gl, 0.5, -1., 0.);
+      primVertex(gl, -0.5, -1., 0.);
+    primEnd(gl);
 
-    if(thrustOn)
-      drawPropulsion();
+  popMvMatrix(gl);
+}
 
-    gl.flush();
-  }
+function drawPropulsion()
+{
 
+    gl.useProgram(shader);
+    pushMvMatrix(gl);
 
-  function rotateMatrix()
+      //thrust position
+      var thrust = vec3.fromValues(0.,0.35,.95);
+      mat4.translate(gl.mvMatrix, gl.mvMatrix,
+            thrust);
+
+      objscale=0.2;
+      mat4.scale(gl.mvMatrix, gl.mvMatrix,
+           [objscale, objscale, objscale]);
+      //turn on blending
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+
+      drawSphere(gl,
+         .3, 40, 20, //rad, slice, stack
+         0.,0.,1.,.5); //rgba
+      drawSphere(gl,
+          .5, 40, 20, //rad, slice, stack
+          1.,0.,0.,.1); //rgba
+
+      //turn off blending
+      gl.disable(gl.BLEND);
+      gl.depthMask(true);
+
+    popMvMatrix(gl);
+}
+
+/**************************************************************/
+/* Callback Functions                                         */
+/**************************************************************/
+
+function displayFunc()
+{
+  gl.useProgram(shader);
+
+  gl.clearColor(0.0, 0.0, 0.0, 1.);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  // camera
+  mat4.identity(gl.mvMatrix);
+  setCam();
+  mat4.multiply(gl.mvMatrix, gl.mvMatrix, camMatrix);
+
+  //draw scene
+  drawStars();
+  drawPlanets();
+
+  // transformations
+  mat4.translate(gl.mvMatrix, gl.mvMatrix,
+    pos); //pos add in idleFunc()
+
+  // rotate ship
+  rotMatrix = rotateMatrix();
+  mat4.multiply(gl.mvMatrix, gl.mvMatrix, rotMatrix);
+
+  //draw player
+  drawShip();
+  if(thrustOn)
+    drawPropulsion();
+
+  gl.flush();
+}
+
+function reshapeFunc(w, h)
+{
+  gl.viewport(0, 0, w, h);
+
+  mat4.perspective(gl.pMatrix, Math.PI/3., w/h, 0.1, 80.);
+}
+
+function idleFunc(e)
+{
+  var elapsedtime = getElapsedTime(0.1);
+
+  if(thrustOn)
   {
-    var pitchMatrix = mat4.create();
-    var right = vec3.fromValues(1.,0.,0.);
-    mat4.fromRotation(pitchMatrix, pitch, right);
-    mat4.translate(pitchMatrix, pitchMatrix, [0.,0.,-.5]);
-
-
-    var yawMatrix = mat4.create();
-    var up = vec3.fromValues(0.,1.,0.);
-    mat4.fromRotation(yawMatrix, yaw, up);
-
-    var rollMatrix = mat4.create();
-    var fwd = vec3.fromValues(0.,0.,-1.);
-    mat4.fromRotation(rollMatrix, roll, fwd);
-    mat4.translate(rollMatrix, rollMatrix, [0.,-.1,.0]);
-
-    mat4.multiply(pitchMatrix, yawMatrix, pitchMatrix);
-    mat4.multiply(pitchMatrix, rollMatrix, pitchMatrix);
-
-    var returnMatrix = pitchMatrix;
-
-    //set forward direction of ship with cross product of BK X RT vectors in modelViewMatrix
-    //was a little guess and check figuring this out, with some help from message boards
-    //https://www.opengl.org/discussion_boards/showthread.php/175515-Get-Direction-from-Transformation-Matrix-or-Quat
-    up = vec3.fromValues(returnMatrix[4],returnMatrix[5],returnMatrix[6]);
-    vec3.normalize(up, up);
-    right = vec3.fromValues(returnMatrix[0],returnMatrix[1],returnMatrix[2]);
-    vec3.normalize(right, right);
-    vec3.cross(dir, up,
-                  right);
-    vec3.normalize(dir, dir);
-
-    return returnMatrix;
+      //pos+=vel*dir
+      vec3.scaleAndAdd(pos, pos, dir, vel);
   }
 
-
-  function reshapeFunc(w, h)
+  // Loop thru animated stars
+  for (var i = 0; i < starNum; ++i)
   {
-    gl.viewport(0, 0, w, h);
+		// Modify velocity with gravity
+		var starDir = Math.random()*2;
+		var starChoice = Math.random();
+		if(starChoice==0)vels[i][starDir] -= Math.random()*elapsedtime;
+		if(starChoice==1)vels[i][starDir] += Math.random()*elapsedtime;
 
-    mat4.perspective(gl.pMatrix, Math.PI/3., w/h, 0.1, 80.);
+		// Modify position with velocity
+		locs[i][0] += vels[i][0] * elapsedtime;
+		locs[i][1] += vels[i][1] * elapsedtime;
+		locs[i][2] += vels[i][2] * elapsedtime;
+
+		// <!-- if(locs[i][0] > 15.) locs[i][1] = -14.; //x -->
+		// <!-- if(locs[i][1] > 15.) locs[i][1] = -14.; //y -->
+		// <!-- if(locs[i][2] > 30.) locs[i][1] = -14.; //z -->
+		// <!-- if(locs[i][0] < -15.) locs[i][1] = 14.; //-x -->
+		// <!-- if(locs[i][1] < -15.) locs[i][1] = 14.; //-y -->
+		// <!-- if(locs[i][2] < -15.) locs[i][1] = -14.; //z -->
   }
 
+  //post redisplay every frame because scene constantly updating
+  postRedisplay();
+}
 
-  function idleFunc(e)
-  {
-      var elapsedtime = getElapsedTime(0.1);
-      postRedisplay();
+function keyboardFunc(e)
+{
+  var key = keyFromEvent(e);
+  var delta = .1; //change in rotation per keypress
 
-
-      //need to figure out how to update bound textures
-      //changeAtmos();
-
-
-      if(thrustOn)
-      {
-          //pos+=vel*dir
-            vec3.scaleAndAdd(pos, pos, dir, vel);
-          postRedisplay();
-      }
+  switch (key)
+   {
+    case 'w':
+    pitch-=delta;
+      break;
+    case 's':
+    pitch+=delta;
+      break;
+    case 'a':
+      roll-=delta;
+      break;
+    case 'd':
+      roll+=delta;
+      break;
+    case 'q':
+    yaw+=delta;
+      break;
+    case 'e':
+    yaw-=delta;
+      break;
+    case ' ':
+      thrustOn=!thrustOn;
+      break;
+    default:
 
   }
-
-
-  function keyboardFunc(e)
-  {
-    var key = keyFromEvent(e);
-    var delta = .1; //change in rotation per keypress
-
-    switch (key)
-     {
-      case 'w':
-      pitch-=delta;
-        break;
-      case 's':
-      pitch+=delta;
-        break;
-      case 'a':
-        roll-=delta;
-        break;
-      case 'd':
-        roll+=delta;
-        break;
-      case 'q':
-      yaw+=delta;
-        break;
-      case 'e':
-      yaw-=delta;
-        break;
-      case ' ':
-        thrustOn=!thrustOn;
-        break;
-      default:
-
-    }
-
-  //  postRedisplay();
-  }
+}
 
 </script>
-
 </body>
 </html>
