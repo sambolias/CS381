@@ -2,7 +2,7 @@
   space.html
   Sam Erie
   serie@alaska.edu
-  
+
   Star particle system by Aisha Peters,
   based on code by Glenn Chappell
 
@@ -41,7 +41,7 @@ canvas
   <ul>
     <li>Pitch: - w + s</li>
     <li>Yaw: - q + e</li>
-    <li>Roll: - a + d</li>
+    <li>Roll(faulty): - a + d</li>
     <li>Thrust: toggle spacebar</li>
   </ul>
 
@@ -431,7 +431,7 @@ function genPlanets(num)
     planets.push(new Object());
     var seperated = false;
     var seed;
-    var minDist = 50.;
+    var minDist = 30.;
     var c;
     var x;
     var y;
@@ -879,7 +879,7 @@ function drawPropulsion()
     pushMvMatrix(gl);
 
       //thrust position
-      var thrust = vec3.fromValues(0.,0.35,.95);
+      var thrust = vec3.fromValues(0.,0.1,.5);
       mat4.translate(gl.mvMatrix, gl.mvMatrix,
             thrust);
 
