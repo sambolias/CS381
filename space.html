@@ -971,6 +971,14 @@ function idleFunc(e)
 		locs[i][0] += vels[i][0] * elapsedtime;
 		locs[i][1] += vels[i][1] * elapsedtime;
 		locs[i][2] += vels[i][2] * elapsedtime;
+		
+		// Keep stars within 50x50 boundary to prevent dead space
+		if(locs[i][0] > 50) locs[i][1] = -49.; //x
+		if(locs[i][1] > 50) locs[i][1] = -49.; //y
+		if(locs[i][2] > 50) locs[i][1] = -49.; //z
+		if(locs[i][0] < -50.) locs[i][1] = 49.; //-x
+		if(locs[i][1] < -50) locs[i][1] = 49.; //-y
+		if(locs[i][2] < -50) locs[i][1] = 49.; //z
   }
 
   //post redisplay every frame because scene constantly updating
